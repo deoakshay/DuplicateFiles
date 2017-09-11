@@ -5,14 +5,65 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
-	"os"
-	"path/filepath"
 	"sync"
+
+	"github.com/stacktic/dropbox"
 )
 
+var Clientid string
+var Clientsecret string
+var TokenId string
+
+func ListDirectories(path string) []string {
+	dropBoxObject := dropbox.NewDropbox()
+	fmt.Println("In DropBox:")
+	dropBoxObject.SetAccessToken(TokenId)
+	dropBoxMetaData, _ := dropBoxObject.Metadata(path, true, true, "", "", 1000)
+	directories := []string{}
+	for index, _ := range dropBoxMetaData.Contents {
+		if dropBoxMetaData.Contents[index].IsDir == true {
+			directories = append(directories, dropBoxMetaData.Contents[index].Path)
+		}
+
+	}
+	directories = append(directories, path)
+	return directories
+}
 func HashAndWrite(path string, hashValueMap *sync.Map, wg *sync.WaitGroup) {
+	defer wg.Done()
+	dropBoxObject := dropbox.NewDropbox()
+	dropBoxObject.SetAccessToken(TokenId)
+	dropBoxMetaData, _ := dropBoxObject.Metadata(path, true, true, "", "", 1000)
+	for index, _ := range dropBoxMetaData.Contents {
+		if dropBoxMetaData.Contents[index].IsDir == false {
+			absolutePath := dropBoxMetaData.Contents[index].Path
+			downloadedFile, size, _ := dropBoxObject.Download(absolutePath, "", 0)
+			if size > 0 {
+				hashValue := md5.New()
+				if _, err := io.Copy(hashValue, downloadedFile); err != nil {
+
+					log.Fatal("exiting in copy", err)
+				}
+
+				stringValueOfHash := hex.EncodeToString(hashValue.Sum(nil))
+				if value, ok := hashValueMap.Load(stringValueOfHash); !ok {
+					hashValueMap.Store(stringValueOfHash, []string{absolutePath})
+				} else {
+					fileArray, ok := value.([]string)
+					if ok {
+						fileArray = append(fileArray, absolutePath)
+						hashValueMap.Store(stringValueOfHash, fileArray)
+					}
+				}
+
+			}
+		}
+
+	}
+}
+
+/*func HashAndWrite(path string, hashValueMap *sync.Map, wg *sync.WaitGroup) {
 	defer wg.Done()
 	fileNames, err := ioutil.ReadDir(path)
 	if err != nil {
@@ -63,11 +114,16 @@ func ListDirectories(path string) []string {
 		}
 	}
 	return dirs
-}
+}*/
 func main() {
 	hashValueMap := new(sync.Map)
 	var wg sync.WaitGroup
-	listDirs := ListDirectories("/Users/akshaydeo/Downloads")
+
+	/*listDirs := ListDirectories("/Users/akshaydeo/Downloads")*/
+	Clientid = "31rmr26bffk3ij8"
+	Clientsecret = "n0rlqt27iuf7scp"
+	TokenId = "KeymFkX_8yAAAAAAAAACQ9aPx3fvPufbDi6MIvsYheIQtmidTq9MkJKYTXfKpeIv"
+	listDirs := ListDirectories("/")
 	for dir := range listDirs {
 		wg.Add(1)
 		go HashAndWrite(listDirs[dir], hashValueMap, &wg)
